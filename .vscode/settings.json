@@ -1,0 +1,4 @@
+{
+    "php-cs-fixer.executablePathWindows": "${extensionPath}/php-cs-fixer.phar",
+    "makefile.configureOnOpen": false
+}
