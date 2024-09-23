@@ -4,28 +4,33 @@ namespace App\Tests\Service;
 
 use App\Service\PaymentService;
 use App\Service\PriceCalculatorService;
+use App\Adapter\PaypalPaymentProcessorAdapter;
+use App\Adapter\StripePaymentProcessorAdapter;
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\MockObject\MockObject;
-use Systemeio\TestForCandidates\PaymentProcessor\PaypalPaymentProcessor;
-use Systemeio\TestForCandidates\PaymentProcessor\StripePaymentProcessor;
 
 class PaymentServiceTest extends TestCase
 {
     private PriceCalculatorService|MockObject $priceCalculatorService;
-    private PaypalPaymentProcessor|MockObject $paypalProcessor;
-    private StripePaymentProcessor|MockObject $stripeProcessor;
+    private PaypalPaymentProcessorAdapter|MockObject $paypalProcessorAdapter;
+    private StripePaymentProcessorAdapter|MockObject $stripeProcessorAdapter;
     private PaymentService $paymentService;
 
     protected function setUp(): void
     {
         $this->priceCalculatorService = $this->createMock(PriceCalculatorService::class);
-        $this->paypalProcessor = $this->createMock(PaypalPaymentProcessor::class);
-        $this->stripeProcessor = $this->createMock(StripePaymentProcessor::class);
+        $this->paypalProcessorAdapter = $this->createMock(PaypalPaymentProcessorAdapter::class);
+        $this->stripeProcessorAdapter = $this->createMock(StripePaymentProcessorAdapter::class);
+
+        // Create the array of processor adapters
+        $processors = [
+            $this->paypalProcessorAdapter,
+            $this->stripeProcessorAdapter
+        ];
 
         $this->paymentService = new PaymentService(
             $this->priceCalculatorService,
-            $this->paypalProcessor,
-            $this->stripeProcessor
+            $processors
         );
     }
 
@@ -33,10 +38,16 @@ class PaymentServiceTest extends TestCase
     {
         $this->priceCalculatorService->method('calculatePrice')->willReturn(100.0);
 
-        $this->paypalProcessor
+        $this->paypalProcessorAdapter
+            ->method('supports')
+            ->with('paypal')
+            ->willReturn(true);
+
+        $this->paypalProcessorAdapter
             ->expects($this->once())
-            ->method('pay')
-            ->with(10000);
+            ->method('processPayment')
+            ->with(100.0)
+            ->willReturn(true);
 
         $result = $this->paymentService->processPayment([
             'product' => 1,
@@ -47,19 +58,28 @@ class PaymentServiceTest extends TestCase
         $this->assertTrue($result);
     }
 
-    public function testProcessPaymentWithInvalidProcessor()
-    {
-        $this->priceCalculatorService
-            ->expects($this->once())
-            ->method('calculatePrice')
-            ->willReturn(100.0);
 
-        $result = $this->paymentService->processPayment([
+    public function testProcessPaymentWithInvalidProcessor(): void
+    {
+        $this->priceCalculatorService->method('calculatePrice')->willReturn(100.0);
+    
+        $this->paypalProcessorAdapter
+            ->method('supports')
+            ->with('invalid')
+            ->willReturn(false);
+    
+        $this->stripeProcessorAdapter
+            ->method('supports')
+            ->with('invalid')
+            ->willReturn(false);
+    
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Invalid payment processor');
+    
+        $this->paymentService->processPayment([
             'product' => 1,
             'taxNumber' => 'DE123456789',
             'paymentProcessor' => 'invalid'
         ]);
-
-        $this->assertFalse($result);
     }
 }
